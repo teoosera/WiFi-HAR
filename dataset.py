@@ -1,45 +1,39 @@
-import torch #[cite: 1, 2, 3, 4]
-from torch.utils.data import Dataset, DataLoader #[cite: 1, 3, 4]
-from torchvision import transforms #[cite: 1, 3, 4]
-import numpy as np #[cite: 1, 2, 3, 4]
+import torch
+import numpy as np
+from torch.utils.data import Dataset, DataLoader
 
-class WiFiHARDataset(Dataset):
-    def __init__(self, data_path, transform=None):
-        # Caricamento matrici CSI (Channel State Information)
-        self.x = np.load(f"{data_path}_x.npy")
-        self.y = np.load(f"{data_path}_y.npy")
-        self.transform = transform
+class SHARPDataset(Dataset):
+    def __init__(self, data_path, mode='train'):
+        self.mode = mode
+        # Assicurati che i file numpy si chiamino così nel tuo Drive
+        self.data = np.load(f"{data_path}/{mode}_doppler.npy") 
+        self.labels = np.load(f"{data_path}/{mode}_labels.npy")
+
+        print(f"Controllo shape {mode} data: {self.data.shape}")
+        print(f"Controllo shape {mode} labels: {self.labels.shape}")
 
     def __len__(self):
-        return len(self.x) #[cite: 4]
+        return len(self.labels)
 
     def __getitem__(self, idx):
-        x_sample = self.x[idx] #[cite: 4]
-        y_sample = int(self.y[idx]) #[cite: 4]
+        # Il dataset contiene 4 antenne, 340 istanti temporali e 100 bin di velocità
+        x = torch.tensor(self.data[idx], dtype=torch.float32) 
+        y = torch.tensor(self.labels[idx], dtype=torch.long)
         
-        if self.transform: #[cite: 4]
-            x_sample = self.transform(x_sample) #[cite: 4]
+        if self.mode == 'train':
+            # Durante il training, estraiamo un'antenna a caso per rendere il modello invariante
+            antenna_idx = np.random.randint(0, 4)
+            x = x[antenna_idx].unsqueeze(0) # Shape: (1, 340, 100)
+            return x, y
+        else:
+            # Durante il test, le manteniamo tutte e 4 per la Decision Fusion[cite: 13]
+            x = x.unsqueeze(1) # Shape: (4, 1, 340, 100)
+            return x, y
             
-        return x_sample, y_sample #[cite: 4]
-
 def get_dataloaders(data_dir, batch_size=32):
-    # Data augmentation con rotazioni e flip casuali[cite: 4]
-    # e Gaussian blur per perturbare i dati di training
-    train_transform = transforms.Compose([
-        transforms.ToTensor(), #[cite: 1, 3, 4]
-        transforms.RandomAffine(degrees=0, translate=(0.05, 0.05)), #[cite: 4]
-        transforms.RandomHorizontalFlip(p=0.5), #[cite: 1, 4]
-        transforms.GaussianBlur(kernel_size=3) #[cite: 1]
-    ])
+    train_dataset = SHARPDataset(data_dir, mode='train')
+    test_dataset = SHARPDataset(data_dir, mode='test')
     
-    test_transform = transforms.Compose([
-        transforms.ToTensor() #[cite: 1, 3, 4]
-    ])
-
-    train_dataset = WiFiHARDataset(f"{data_dir}/train", transform=train_transform)
-    test_dataset = WiFiHARDataset(f"{data_dir}/test", transform=test_transform)
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) #[cite: 1, 3, 4]
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False) #[cite: 1, 3, 4]
-
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader
