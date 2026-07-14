@@ -2,12 +2,17 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter  # IMPORTANTE: Aggiunto per TensorBoard
 from models import BaselineModel
 from dataset import get_dataloaders
 
-def train(data_dir, checkpoint_dir, epochs=10, batch_size=32, lr=0.001):
+# Aggiunto log_dir nei parametri
+def train(data_dir, checkpoint_dir, log_dir, epochs=10, batch_size=32, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Inizio training su: {device}")
+    
+    # Inizializza il writer di TensorBoard
+    writer = SummaryWriter(log_dir=log_dir)
     
     model = BaselineModel(num_classes=7).to(device)
     criterion = nn.CrossEntropyLoss()
@@ -25,8 +30,6 @@ def train(data_dir, checkpoint_dir, epochs=10, batch_size=32, lr=0.001):
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         start_epoch = checkpoint['epoch'] + 1
         print(f"Allenamento ripreso dall'epoca {start_epoch+1}")
-    else:
-        print("Nessun checkpoint trovato. Inizio allenamento da zero.")
     # -----------------------------------------------------
 
     train_loader = get_dataloaders(data_dir, batch_size)
@@ -53,20 +56,29 @@ def train(data_dir, checkpoint_dir, epochs=10, batch_size=32, lr=0.001):
             
         acc = 100. * correct / total
         loss_epoch = running_loss / len(train_loader)
+        
         print(f"Epoch [{epoch+1}/{epochs}] | Loss: {loss_epoch:.4f} | Accuracy: {acc:.2f}%")
         
-        # SALVATAGGIO CHECKPOINT A OGNI EPOCA
+        # -----> SCRITTURA SU TENSORBOARD <-----
+        writer.add_scalar('Training/Loss', loss_epoch, epoch)
+        writer.add_scalar('Training/Accuracy', acc, epoch)
+        
+        # Salvataggio Checkpoint
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss_epoch,
         }, checkpoint_path)
-        print(f"Checkpoint salvato su Drive per l'epoca {epoch+1}")
+
+    # Chiudi il writer alla fine
+    writer.close()
 
 if __name__ == "__main__":
-    # Sostituisci questi percorsi con le tue cartelle su Google Drive
+    # PERCORSI SUL TUO DRIVE (Codice preso da Github, ma dati e log salvati su Drive)
     DATA_DIR = "/content/drive/MyDrive/WiFi-HAR/doppler_traces" 
     CHECKPOINT_DIR = "/content/drive/MyDrive/WiFi-HAR/weights"
+    LOG_DIR = "/content/drive/MyDrive/WiFi-HAR/logs" # Cartella per Tensorboard
     
-    train(DATA_DIR, CHECKPOINT_DIR, epochs=50)
+    train(DATA_DIR, CHECKPOINT_DIR, LOG_DIR, epochs=5)
+
