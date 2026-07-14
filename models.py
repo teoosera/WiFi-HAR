@@ -1,103 +1,57 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-# --- MODELLO 1: CNN Custom Semplice ---
-class CustomSimpleCNN(nn.Module):
-    def __init__(self, num_classes=5):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2), # Da 340x100 a 170x50
-            
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2)  # Da 170x50 a 85x25
+class BaselineModel(nn.Module):
+    def __init__(self, num_classes=7):
+        super(BaselineModel, self).__init__()
+        
+        # Path 1: MaxPool (2x2) Stride 2[cite: 1]
+        self.branch1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        
+        # Path 2: Conv 5@(2x2) S2-ReLu[cite: 1]
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=5, kernel_size=2, stride=2),
+            nn.ReLU()
         )
-        self.flatten = nn.Flatten()
+        
+        # Path 3: Tre convoluzioni in cascata[cite: 1]
+        self.branch3 = nn.Sequential(
+            # Conv 3@(1x1) S1-ReLu[cite: 1]
+            nn.Conv2d(in_channels=1, out_channels=3, kernel_size=1, stride=1),
+            nn.ReLU(),
+            # Conv 6@(2x2) S1-ReLu (usiamo padding='same' per mantenere le dimensioni per la successiva)[cite: 1]
+            nn.Conv2d(in_channels=3, out_channels=6, kernel_size=2, stride=1, padding='same'),
+            nn.ReLU(),
+            # Conv 9@(4x4) S2-ReLu (padding 1 per allineare l'output a 170x50)[cite: 1]
+            nn.Conv2d(in_channels=6, out_channels=9, kernel_size=4, stride=2, padding=1),
+            nn.ReLU()
+        )
+        
+        # Post-Concat: Conv 3@(1x1) S1-ReLu[cite: 1]
+        # I canali in input saranno la somma dei canali dei 3 branch: 1 + 5 + 9 = 15
+        self.post_concat = nn.Sequential(
+            nn.Conv2d(in_channels=15, out_channels=3, kernel_size=1, stride=1),
+            nn.ReLU()
+        )
+        
+        # Classifier: Flatten -> Dropout (0.2) -> Dense[cite: 1]
+        # Dimensione dopo le feature maps: 3 canali * 170 * 50 = 25500
         self.classifier = nn.Sequential(
-            nn.Linear(32 * 85 * 25, 128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.3),
-            nn.Linear(128, num_classes)
+            nn.Flatten(),
+            nn.Dropout(0.2),
+            nn.Linear(25500, num_classes)
         )
 
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.flatten(x)
-        return self.classifier(x)
-
-
-# --- MODELLO 2: CNN con Residual Connections (Stile ResNet) ---
-class ResidualBlock(nn.Module):
-    def __init__(self, channels):
-        super().__init__()
-        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        residual = x
-        out = self.relu(self.conv1(x))
-        out = self.conv2(out)
-        out += residual # Connessione residua
-        return self.relu(out)
-
-class CustomResNet(nn.Module):
-    def __init__(self, num_classes=5):
-        super().__init__()
-        self.initial = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1), # Da 340x100 a 170x50
-            nn.ReLU(inplace=True)
-        )
-        self.res_block1 = ResidualBlock(16)
+        # x shape attesa: (batch_size, 1, 340, 100)[cite: 1]
+        out1 = self.branch1(x)
+        out2 = self.branch2(x)
+        out3 = self.branch3(x)
         
-        self.downsample = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1), # Da 170x50 a 85x25
-            nn.ReLU(inplace=True)
-        )
-        self.res_block2 = ResidualBlock(32)
+        # Concatena lungo la dimensione dei canali[cite: 1]
+        out = torch.cat([out1, out2, out3], dim=1)
         
-        self.flatten = nn.Flatten()
-        self.fc = nn.Linear(32 * 85 * 25, num_classes)
-
-    def forward(self, x):
-        x = self.initial(x)
-        x = self.res_block1(x)
-        x = self.downsample(x)
-        x = self.res_block2(x)
-        x = self.flatten(x)
-        return self.fc(x)
-
-
-# --- MODELLO 3: CNN ibrida con GRU (Per sequenze temporali) ---
-# Usa la CNN per estrarre le feature spaziali e una RNN per le dinamiche temporali
-class CNN_GRU(nn.Module):
-    def __init__(self, num_classes=5):
-        super().__init__()
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d((1, 2)) # Riduciamo solo i bin di velocità (da 100 a 50), teniamo i 340 istanti intatti
-        )
+        out = self.post_concat(out)
+        out = self.classifier(out)
         
-        # RNN layer: input size = 16 canali * 50 bin = 800
-        self.rnn = nn.GRU(input_size=800, hidden_size=64, batch_first=True)
-        self.fc = nn.Linear(64, num_classes)
-
-    def forward(self, x):
-        batch_size = x.size(0)
-        x = self.cnn(x) # Shape: (batch, 16, 340, 50)
-        
-        # Riorganizziamo per la RNN: (batch, sequenza_temporale, feature)
-        # Permutiamo in (batch, 340, 16, 50) e poi appiattiamo le ultime due dimensioni
-        x = x.permute(0, 2, 1, 3).contiguous()
-        x = x.view(batch_size, 340, -1) # Shape: (batch, 340, 800)
-        
-        # Passaggio nella GRU
-        out, _ = self.rnn(x) # out shape: (batch, 340, 64)
-        
-        # Prendiamo solo l'ultimo istante temporale per la classificazione
-        last_time_step = out[:, -1, :] 
-        return self.fc(last_time_step)
+        return out
