@@ -66,7 +66,7 @@ def train(data_dir, checkpoint_dir, epochs=10, batch_size=32, lr=0.001):
 
 if __name__ == "__main__":
     # Sostituisci questi percorsi con le tue cartelle su Google Drive
-    DATA_DIR = "/content/drive/MyDrive/Cartella_Progetto_WiFi/dataset" 
-    CHECKPOINT_DIR = "/content/drive/MyDrive/Cartella_Progetto_WiFi/checkpoints"
+    DATA_DIR = "/content/drive/MyDrive/WiFi-HAR/doppler_traces" 
+    CHECKPOINT_DIR = "/content/drive/MyDrive/WiFi-HAR/weights"
     
     train(DATA_DIR, CHECKPOINT_DIR, epochs=50)

@@ -36,7 +36,7 @@ def evaluate(data_dir, checkpoint_path, batch_size=32):
 
 if __name__ == "__main__":
     # Sostituisci con i percorsi corretti di Drive
-    TEST_DATA_DIR = "/content/drive/MyDrive/Cartella_Progetto_WiFi/dataset_test"
-    CHECKPOINT_PATH = "/content/drive/MyDrive/Cartella_Progetto_WiFi/checkpoints/checkpoint.pth"
+    TEST_DATA_DIR = "/content/drive/MyDrive/WiFi-HAR/doppler_traces" 
+    CHECKPOINT_PATH = "/content/drive/MyDrive/WiFi-HAR/weights"
     
     evaluate(TEST_DATA_DIR, CHECKPOINT_PATH)
